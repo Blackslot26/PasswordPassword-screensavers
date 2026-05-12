@@ -1,0 +1,30 @@
+{
+	"contentrating" : "Everyone",
+	"description" : "Iso screensaver from the passwordpassword site.\nCredits for extracting to Mateusfccp.\nSource: [url=https://docs.google.com/document/d/1Q8_NkbQs2ZYPIFoL9TEmGub3z4crjIr0r-sWrnvAGkQ/edit?tab=t.0#heading=h.abfuyrz4xg8]Password password community google doc[/url]",
+	"file" : "index.html",
+	"general" : 
+	{
+		"properties" : 
+		{
+			"schemecolor" : 
+			{
+				"order" : 0,
+				"text" : "ui_browse_properties_scheme_color",
+				"type" : "color",
+				"value" : "1 0 0"
+			}
+		}
+	},
+	"preview" : "preview.gif",
+	"ratingsex" : "none",
+	"ratingviolence" : "none",
+	"snapshotformat" : 1,
+	"snapshotoverlay" : "",
+	"tags" : [ "Abstract" ],
+	"title" : "Iso screensaver (From PasswordPassword / MilkOutsideABagOfMilk)",
+	"type" : "web",
+	"version" : 2,
+	"visibility" : "public",
+	"workshopid" : "3720004567",
+	"workshopurl" : "steam://url/CommunityFilePage/3720004567"
+}

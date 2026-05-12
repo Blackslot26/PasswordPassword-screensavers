@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+    <script type="text/javascript" src="glslcanvas.js"></script>
+</head>
+<body>
+    <audio id="bgMusic" autoplay></audio>
+    <canvas class="glslCanvas"></canvas>
+    <script>
+const multiShaderCode = `
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_anim_time;
+uniform float u_transition;
+uniform float u_currentScene;
+uniform float u_nextScene;
+uniform float u_tipoTransicion;
+
+int s1_cell_amount = 2;
+vec2 s1_period = vec2(5., 10.);
+vec2 s1_modulo(vec2 divident, vec2 divisor){
+    vec2 positiveDivident = mod(divident, divisor) + divisor;
+    return mod(positiveDivident, divisor);
+}
+vec2 s1_random(vec2 value){
+    value = vec2( dot(value, vec2(127.1,311.7) ), dot(value, vec2(269.5,183.3) ) );
+    return -1.0 + 2.0 * fract(sin(value) * 43758.5453123);
+}
+float s1_noise(vec2 uv) {
+    vec2 _period = vec2(3.);
+    uv = uv * float(s1_cell_amount);
+    vec2 cMin = floor(uv);
+    vec2 cMax = ceil(uv);
+    vec2 uvFract = fract(uv);
+    cMin = s1_modulo(cMin, _period);
+    cMax = s1_modulo(cMax, _period);
+    vec2 blur = smoothstep(0.0, 1.0, uvFract);
+    vec2 ll = s1_random(vec2(cMin.x, cMin.y));
+    vec2 lr = s1_random(vec2(cMax.x, cMin.y));
+    vec2 ul = s1_random(vec2(cMin.x, cMax.y));
+    vec2 ur = s1_random(vec2(cMax.x, cMax.y));
+    vec2 fraction = fract(uv);
+    return mix( mix( dot( ll, fraction - vec2(0, 0) ), dot( lr, fraction - vec2(1, 0) ), blur.x),
+                mix( dot( ul, fraction - vec2(0, 1) ), dot( ur, fraction - vec2(1, 1) ), blur.x), blur.y) * 0.8 + 0.5;
+}
+float s1_fbm(vec2 uv) {
+    float amplitude = 0.5;
+    float frequency = 3.0;
+    float value = 0.0;
+    for(int i = 0; i < 6; i++) {
+        value += amplitude * s1_noise(frequency * uv);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    return value;
+}
+vec2 s1_polar(vec2 uv, vec2 center, float zoom, float repeat){
+    vec2 dir = uv - center;
+    float radius = length(dir) * 2.0;
+    float angle = atan(dir.y, dir.x) * 1.0/(3.1416 * 2.0);
+    return vec2(radius * zoom, angle * repeat);
+}
+void shader1(out vec4 color, vec2 p){
+    vec2 uv = floor((2. * p - u_resolution.xy) / u_resolution.y * 1000.) / 500.;
+    vec2 puv = s1_polar(uv, vec2(0.), .5, 1.);
+    vec3 c = vec3(0.);
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkGrey = vec4(vec3(0.3215686274509804, 0.14901960784313725, 0.24313725490196078), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    float n = s1_fbm(puv * vec2(1., 1.) + vec2(u_anim_time * .2, 5. / (puv.x) * -.1) * .5);
+    n = n*n / sqrt(puv.x) * .8;
+    c = vec3(milkBlack);
+    if (n > 0.2) c = vec3(milkGrey);
+    if (n > 0.25) c = vec3(milkWhite);
+    if (puv.x < .4) c = vec3(milkBlack);
+    color = vec4(c, 1.);
+}
+
+void shader2(out vec4 c, vec2 p) {
+    vec2 uv = .275 * p.xy / u_resolution.y;
+    float t = u_anim_time*.001 + 3., k = cos(t), l = sin(t);        
+    float s = .2;
+    for(int i=0; i<64; ++i) {
+        uv  = abs(uv) - s;
+        uv *= mat2(k,-l,l,k);
+        s  *= .95156;
+    }
+    float x = .5 + .5*cos(6.28318*(40.*length(uv)));
+    c = vec4(vec3(x),1);
+    c = .5+.5*cos(7.47128*(40.*length(uv)*vec4(1,2,3,4)));
+    float avg = (c.r + c.g + c.b) / 3.;
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkGrey = vec4(vec3(0.3215686274509804, 0.14901960784313725, 0.24313725490196078), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    c = mix(mix(milkBlack, milkGrey, floor(avg * 2.)), milkWhite, floor(avg * 2.));
+}
+
+#define s3_TAU 6.2831853071
+#define s3_dt mod(u_anim_time / 7.,s3_TAU)
+mat2 s3_rot (float a) {return mat2(cos(a),sin(a),-sin(a),cos(a));}
+void s3_moda(inout vec2 p, float rep){
+    float per = s3_TAU/rep;
+    float a = mod(atan(p.y,p.x), per)-per*0.5;
+    p = vec2(cos(a),sin(a))*length(p);
+}
+void s3_mo (inout vec2 p, vec2 d){
+    p = abs(p)-d;
+    if (p.y>p.x) p = p.yx;
+}
+float s3_cyl (vec3 p, float r, float h){
+    return max(length(p.xy)-r,abs(p.z)-h);
+}
+float s3_prim1 (vec3 p){
+    float width = 0.05;
+    p.xz *= s3_rot(p.y*8.); 
+    s3_mo(p.xz, vec2(0.1)); 
+    s3_moda(p.xz, 5.);
+    p.x -= width*2.5;
+    return s3_cyl(p.xzy, width, 6.);
+}
+float s3_SDF (vec3 p){
+    p.yz *= s3_rot(s3_TAU/4.);
+    p.xz *= s3_rot(sin(p.y*1.5+s3_dt));    
+    s3_mo(p.xz, vec2(.7));
+    s3_moda(p.xz, 6.);
+    p.x -= 0.1+(p.y+3.);
+    return s3_prim1(p);
+}
+void shader3( out vec4 fragColor, in vec2 fragCoord ){
+    vec2 uv = (2.*fragCoord-u_resolution.xy)/u_resolution.y;
+    vec3 ro = vec3(uv*4.,-20.), rd = vec3(0.,0.,1.), p = ro, col = vec3(0.);
+    float shad = 0., d=0.;
+    bool hit = false;
+    for (float i=0.; i<18.;i++){
+        d = s3_SDF(p);
+        if (d<0.01){
+            hit = true;
+            shad = i/64.;
+            break;
+        }
+        p += d*rd*0.3;
+    }
+    if (hit) col = vec3(smoothstep(0.7,0.8,1.-shad));
+    fragColor = vec4(sqrt(col),1.0);
+    float avg = (fragColor.r + fragColor.g + fragColor.b) / 3.0;
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkGrey = vec4(vec3(0.3215686274509804, 0.14901960784313725, 0.24313725490196078), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    avg = floor(avg * 2. + 0.5);
+    fragColor = mix(mix(milkBlack, milkGrey, avg), milkWhite, floor(avg / 2.));
+}
+
+float s4_rand(float n) { return fract(sin(n) * 43758.5453123); }
+float s4_noise(float p) {
+    float fl = floor(p);
+    float fc = fract(p);
+    return mix(s4_rand(fl), s4_rand(fl + 1.0), fc);
+}
+void shader4( out vec4 fragColor, in vec2 fragCoord ) {
+    vec2 uv = (2. * fragCoord - u_resolution.xy) / u_resolution.y;
+    uv.x += 0.2 * sin(u_anim_time / 5. + uv.y * 4.);
+    float numLines = 15. + fragCoord.y * 0.05;
+    float colNoise = s4_noise(0.6 * uv.x * numLines);
+    float colStripes = 0.5 + 0.5 * sin(uv.x * numLines * 0.75);
+    float col = mix(colNoise, colStripes, 0.25 * sin(u_anim_time / 10.));
+    col = smoothstep(0.5 - 0.2, 0.5 + 0.2, col);
+    fragColor = vec4(vec3(col),1.0);
+    float avg = (fragColor.r + fragColor.g + fragColor.b) / 3.0;
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkGrey = vec4(vec3(0.3215686274509804, 0.14901960784313725, 0.24313725490196078), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    fragColor = mix(mix(milkBlack, milkGrey, floor(avg * 2.)), milkWhite, floor(floor(avg * 2.) / 2.));
+}
+
+float s5_torusSDF(vec3 p, float radius){  
+     return length( vec2( length(p.xz) - 1., p.y) ) - radius;   
+}
+void shader5( out vec4 fragColor, in vec2 fragCoord ) {
+    vec2 uv = (fragCoord - 0.5 * u_resolution.xy)/u_resolution.y;
+    float t = u_anim_time * .02;
+    uv *= mat2(cos(t),-sin(t), sin(t), cos(t)); 
+    vec3 ro = vec3(0,0,-1); 
+    vec3 lookat = mix(vec3(0),vec3(-.7,0,-.7), sin(t*1.56)*.5+.5);
+    float zoom = mix(.2, .7, sin(t)*.5+.5); 
+    vec3 f = normalize(lookat-ro), 
+        r = normalize(cross(vec3(0,1,0), f)), 
+        u = cross(f,r), 
+        c = ro + f*zoom, 
+        i = c + uv.x * r + uv.y * u, 
+        rd = normalize(i-ro);
+    float radius = mix(.3, .9, sin(t*.5)*.5+.5);
+    float dS, dO = 0.0; 
+    vec3 p; 
+    for(int j = 0; j < 100; j++){
+        p = ro + dO*rd;
+        dS = - (s5_torusSDF(p, radius)); 
+        if(dS < .001) break;
+        dO += dS;
+    }
+    vec3 col = vec3(0.0);
+    if(dS < .001){
+        float x = atan(p.x, p.z)+t * .5;             
+        float y = atan(length(p.xz) - 1., p.y); 
+        float bands = sin(y*10.+x*20.); 
+        float waves = sin(x*2.-y*6.+ t * 37.);
+        float b1 = smoothstep(-.2, .2, bands);
+        float b2 = smoothstep(-.2, .2, bands-0.5); 
+        float m = b1*(1. - b2);
+        m = max(m, b2 * max(0., waves));
+        m +=max(0., waves * .3 * b2);
+        col += m;
+        col = smoothstep(.0, 0.1, col);
+    }
+    fragColor = vec4(col,1.0);
+    float avg = (fragColor.r + fragColor.g + fragColor.b) / 3.0;
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    fragColor = mix(milkBlack, milkWhite, floor(floor(avg * 2.) / 2.));
+}
+
+float s6_sdBox(vec3 o, vec3 r, vec3 p) {
+    vec3 q = abs(p-o)-r;
+    return length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 5.);
+}
+vec3 s6_rotated_x(vec3 v, float a) {
+    return vec3(v.x, (v.y*cos(a)) - (v.z*sin(a)), (v.y*sin(a)) + (v.z*cos(a)));
+}
+vec3 s6_rotated_y(vec3 v, float a) {
+    return vec3((v.x*cos(a))+(v.z*sin(a)), v.y, (v.z*cos(a))-(v.x*sin(a)));
+}
+float s6_map(vec3 p) {
+    return s6_sdBox(vec3(0), vec3(.15), p-floor(p + 0.5));
+}
+void shader6( out vec4 fragColor, in vec2 fragCoord ) {
+    float pi = 3.141592653;
+    vec2 uv = fragCoord.xy/u_resolution.xy;
+    uv = fract(uv) * 2.0 - 1.0;
+    uv.x *= u_resolution.x / u_resolution.y;
+    vec3 ro = vec3(.5, .5, fract(u_anim_time/5.));
+    vec3 rd = normalize(vec3(uv, 1));
+    rd = s6_rotated_x(rd, (sin(u_anim_time / 20.) * 500. /u_resolution.y)*(pi/2.));
+    rd = s6_rotated_y(rd, (cos(u_anim_time / 10.) * 300. /u_resolution.x-.5)*(pi/2.));
+    float t = 0.0;
+    for (float i = 0.0 ; i < 25.0 ; i++) {
+        float a = s6_map(ro);
+        ro += rd*a;
+        t += length(rd*a);
+        if (t > 10.0) break;
+    }
+    fragColor = vec4(t/10.);
+    float avg = (fragColor.r + fragColor.g + fragColor.b) / 3.0;
+    vec4 milkBlack = vec4(vec3(0.050980392156862744, 0.050980392156862744, 0.0784313725490196), 1.0);
+    vec4 milkGrey = vec4(vec3(0.3215686274509804, 0.14901960784313725, 0.24313725490196078), 1.0);
+    vec4 milkWhite = vec4(vec3(0.6745098039215687, 0.19607843137254902, 0.19607843137254902), 1.0);
+    avg = floor(avg * 2. - 0.01);
+    fragColor = mix(mix(milkWhite, milkGrey, avg), milkBlack, floor(avg / 2.));
+}
+
+#define s7_t (u_anim_time / 10.0)
+vec3 s7_hash33(vec3 p) {
+    p = p * mat3(1111, 222.2, 333.3, 444.4, 555.5, 666.6, 777.7, 888.8, 999.9);
+    p = -1.0 + 2.0 * fract(sin(p) * 43758.5453);
+    return sin(p * 3.141 + s7_t);
+}
+float s7_perlinNoiseLerp(float l, float r, float t) {
+    t = ((6.0 * t - 15.0) * t + 10.0) * t * t * t;
+    return mix(l, r, t);
+}
+float s7_perlin_noise(vec3 p) {
+    vec3 pi = floor(p);
+    vec3 pf = fract(p);
+    vec3 uvw = pf * pf * (3.0 - 2.0 * pf);
+    float temp00 = s7_perlinNoiseLerp(dot(s7_hash33(pi + vec3(0.0, 0.0, 0.0)), pf - vec3(0.0, 0.0, 0.0)), dot(s7_hash33(pi + vec3(1.0, 0.0, 0.0)), pf - vec3(1.0, 0.0, 0.0)), uvw.x);
+    float temp01 = s7_perlinNoiseLerp(dot(s7_hash33(pi + vec3(0.0, 0.0, 1.0)), pf - vec3(0.0, 0.0, 1.0)), dot(s7_hash33(pi + vec3(1.0, 0.0, 1.0)), pf - vec3(1.0, 0.0, 1.0)), uvw.x);
+    float temp10 = s7_perlinNoiseLerp(dot(s7_hash33(pi + vec3(0.0, 1.0, 0.0)), pf - vec3(0.0, 1.0, 0.0)), dot(s7_hash33(pi + vec3(1.0, 1.0, 0.0)), pf - vec3(1.0, 1.0, 0.0)), uvw.x);
+    float temp11 = s7_perlinNoiseLerp(dot(s7_hash33(pi + vec3(0.0, 1.0, 1.0)), pf - vec3(0.0, 1.0, 1.0)), dot(s7_hash33(pi + vec3(1.0, 1.0, 1.0)), pf - vec3(1.0, 1.0, 1.0)), uvw.x);
+    float noiseValue = s7_perlinNoiseLerp(s7_perlinNoiseLerp(temp00, temp10, uvw.y), s7_perlinNoiseLerp(temp01, temp11, uvw.y), uvw.z);
+    return (noiseValue + 0.5) / 2.0;
+}
+float s7_fbm( vec3 p ) {
+   p *= 4.;
+   float a = 1., r = 0.;
+   for (int i=0; i<4; i++) {
+     r += a*abs(s7_perlin_noise(p)); p *= 2.; a*=.5;
+   }
+   return r;
+}
+void shader7( out vec4 fragColor, in vec2 fragCoord ) {
+    vec2 uv = (fragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+    float f = s7_fbm(vec3(uv.x,uv.y,1.0) * 0.2);
+    vec3 color = vec3(0.0509, 0.0509, 0.0784);
+    if (floor(fract((f - s7_t * 0.1) * 10.) + 0.1) > 0.5) {
+        color = vec3(0.6745, 0.196, 0.196);
+    }
+    fragColor = vec4(color, 1.0);
+}
+
+void main() {
+    vec4 colorA = vec4(0.0);
+    vec4 colorB = vec4(0.0);
+    
+    if (u_currentScene < 0.5) shader1(colorA, gl_FragCoord.xy);
+    else if (u_currentScene < 1.5) shader2(colorA, gl_FragCoord.xy);
+    else if (u_currentScene < 2.5) shader3(colorA, gl_FragCoord.xy);
+    else if (u_currentScene < 3.5) shader4(colorA, gl_FragCoord.xy);
+    else if (u_currentScene < 4.5) shader5(colorA, gl_FragCoord.xy);
+    else if (u_currentScene < 5.5) shader6(colorA, gl_FragCoord.xy);
+    else shader7(colorA, gl_FragCoord.xy);
+
+    if (u_nextScene < 0.5) shader1(colorB, gl_FragCoord.xy);
+    else if (u_nextScene < 1.5) shader2(colorB, gl_FragCoord.xy);
+    else if (u_nextScene < 2.5) shader3(colorB, gl_FragCoord.xy);
+    else if (u_nextScene < 3.5) shader4(colorB, gl_FragCoord.xy);
+    else if (u_nextScene < 4.5) shader5(colorB, gl_FragCoord.xy);
+    else if (u_nextScene < 5.5) shader6(colorB, gl_FragCoord.xy);
+    else shader7(colorB, gl_FragCoord.xy);
+
+    if (u_tipoTransicion < 0.5) {
+        gl_FragColor = mix(colorA, colorB, u_transition);
+    } else if (u_tipoTransicion < 1.5) {
+        gl_FragColor = mix(colorA, colorB, step(gl_FragCoord.x / u_resolution.x, u_transition));
+    } else {
+        vec4 black = vec4(0.0, 0.0, 0.0, 1.0);
+        gl_FragColor = u_transition < 0.5 ? mix(colorA, black, clamp(u_transition * 2.0, 0.0, 1.0)) : mix(black, colorB, clamp((u_transition - 0.5) * 2.0, 0.0, 1.0));
+    }
+}
+`;
+
+    const canvas = document.querySelector('canvas');
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    const sandbox = new GlslCanvas(canvas);
+    sandbox.load(multiShaderCode);
+
+    let currentScene = 0;
+    let nextScene = 0;
+    let transitionValue = 0.0;
+    let isTransitioning = false;
+    let durationScene = 60000;
+    let durationTransition = 2000;
+    let timerId;
+    
+    let lastTime = 0; 
+    let animTime = 0.0;
+    let speedMultiplier = 1.0;
+
+    let disabledMap = {0:false, 1:false, 2:false, 3:false, 4:false, 5:false, 6:false};
+    let activeShaders = [0, 1, 2, 3, 4, 5, 6];
+
+    const audioPlayer = document.getElementById('bgMusic');
+    const playlist = [];
+    for (let i = 1; i <= 25; i++) {
+        playlist.push("audios/audio" + i + ".mp3");
+    }
+
+    let prevSongIndex = -1;
+    function playRandomSong() {
+        let nextSongIndex;
+        do {
+            nextSongIndex = Math.floor(Math.random() * playlist.length);
+        } while (nextSongIndex === prevSongIndex);
+        
+        prevSongIndex = nextSongIndex;
+        audioPlayer.src = playlist[nextSongIndex];
+        audioPlayer.play().catch(() => {});
+    }
+
+    audioPlayer.addEventListener('ended', playRandomSong);
+    playRandomSong();
+
+    function updateActiveShaders() {
+        activeShaders = [];
+        for (let i = 0; i < 7; i++) {
+            if (!disabledMap[i]) activeShaders.push(i);
+        }
+        if (activeShaders.length === 0) {
+            activeShaders = [0]; 
+        }
+        if (!activeShaders.includes(currentScene) && !isTransitioning) {
+            currentScene = activeShaders[0];
+            sandbox.setUniform("u_currentScene", currentScene);
+            sandbox.setUniform("u_nextScene", currentScene);
+        }
+    }
+
+    function pickRandomNextScene() {
+        if (activeShaders.length === 1) return activeShaders[0];
+        let posibles = activeShaders.filter(s => s !== currentScene);
+        if (posibles.length === 0) return activeShaders[0];
+        return posibles[Math.floor(Math.random() * posibles.length)];
+    }
+
+    function triggerTransition() {
+        if (activeShaders.length <= 1) return;
+        nextScene = pickRandomNextScene();
+        sandbox.setUniform("u_nextScene", nextScene);
+        isTransitioning = true;
+    }
+
+    function animate(currentTime) {
+        if (!lastTime) lastTime = currentTime;
+        let deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+
+        animTime += (deltaTime / 1000.0) * speedMultiplier;
+        sandbox.setUniform("u_anim_time", animTime);
+
+        if (isTransitioning) {
+            transitionValue += deltaTime / durationTransition;
+            if (transitionValue >= 1.0) {
+                transitionValue = 0.0;
+                isTransitioning = false;
+                currentScene = nextScene;
+                sandbox.setUniform("u_currentScene", currentScene);
+            }
+            sandbox.setUniform("u_transition", transitionValue);
+        }
+        requestAnimationFrame(animate);
+    }
+
+    sandbox.setUniform("u_currentScene", currentScene);
+    sandbox.setUniform("u_nextScene", currentScene);
+    sandbox.setUniform("u_transition", 0.0);
+    sandbox.setUniform("u_tipoTransicion", 0.0);
+    requestAnimationFrame(animate); 
+    timerId = setInterval(triggerTransition, durationScene);
+
+    window.wallpaperPropertyListener = {
+        applyUserProperties: function(properties) {
+            
+            if (properties.velocidad_animacion !== undefined) {
+                let valor = parseFloat(properties.velocidad_animacion.value);
+                if (!isNaN(valor)) {
+                    speedMultiplier = valor / 50; 
+                }
+            }
+
+            if (properties.volumen_musica !== undefined) {
+                let valorVolumen = parseFloat(properties.volumen_musica.value) / 100;
+                if (!isNaN(valorVolumen)) {
+                    let volFinal = Math.max(0, Math.min(1, valorVolumen));
+                    audioPlayer.volume = volFinal;
+                    if (volFinal === 0) {
+                        audioPlayer.pause();
+                    } else if (audioPlayer.paused) {
+                        audioPlayer.play().catch(() => {});
+                    }
+                }
+            }
+
+            if (properties.tiempo_espera?.value !== undefined) {
+                let nuevoTiempo = parseFloat(properties.tiempo_espera.value);
+                if (!isNaN(nuevoTiempo) && nuevoTiempo > 0) {
+                    durationScene = nuevoTiempo * 1000;
+                    clearInterval(timerId);
+                    timerId = setInterval(triggerTransition, durationScene);
+                }
+            }
+            if (properties.duracion_transicion?.value !== undefined) {
+                let nuevaDuracion = parseFloat(properties.duracion_transicion.value);
+                if (!isNaN(nuevaDuracion) && nuevaDuracion > 0) {
+                    durationTransition = nuevaDuracion * 1000;
+                }
+            }
+            if (properties.efecto_transicion?.value !== undefined) {
+                let valorEfecto = parseFloat(properties.efecto_transicion.value);
+                if (!isNaN(valorEfecto)) {
+                    sandbox.setUniform("u_tipoTransicion", valorEfecto);
+                }
+            }
+            if (properties.disableo !== undefined) disabledMap[0] = properties.disableo.value;
+            if (properties.disablesharding !== undefined) disabledMap[1] = properties.disablesharding.value;
+            if (properties.disablespirals !== undefined) disabledMap[2] = properties.disablespirals.value;
+            if (properties.disablewaves !== undefined) disabledMap[3] = properties.disablewaves.value;
+            if (properties.disablefusion !== undefined) disabledMap[4] = properties.disablefusion.value;
+            if (properties.disablecubes !== undefined) disabledMap[5] = properties.disablecubes.value;
+            if (properties.disableiso !== undefined) disabledMap[6] = properties.disableiso.value;
+            updateActiveShaders();
+        }
+    };
+    </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+	"contentrating" : "Everyone",
+	"description" : "Cubes screensaver from the passwordpassword site.\r\nCredits for extracting to Veritius and akai_hana.\r\nSource: [url=https://docs.google.com/document/d/1Q8_NkbQs2ZYPIFoL9TEmGub3z4crjIr0r-sWrnvAGkQ/edit?tab=t.0#heading=h.abfuyrz4xg8]Password password community google doc[/url]",
+	"file" : "index.html",
+	"general" : 
+	{
+		"properties" : 
+		{
+			"schemecolor" : 
+			{
+				"order" : 0,
+				"text" : "ui_browse_properties_scheme_color",
+				"type" : "color",
+				"value" : "0.807843137254902 0.09019607843137255 0.09019607843137255"
+			}
+		}
+	},
+	"preview" : "preview.gif",
+	"ratingsex" : "none",
+	"ratingviolence" : "none",
+	"snapshotformat" : 1,
+	"snapshotoverlay" : "",
+	"tags" : [ "Abstract" ],
+	"title" : "Cubes (passwordpassword / milkoutsideabagofmilk)",
+	"type" : "web",
+	"version" : 2,
+	"visibility" : "public",
+	"workshopid" : "3719351402",
+	"workshopurl" : "steam://url/CommunityFilePage/3719351402"
+}
